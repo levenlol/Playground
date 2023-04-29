@@ -1,0 +1,25 @@
+[tool.poetry]
+name = "playground"
+version = "0.1.0"
+description = "Various implementation of RL algorithms to solve Gym environments."
+authors = ["Paolo Bernacca <bernaccapaolo@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.9"
+numpy = ">=1.21"
+torch = { version = "^2.0.0+cu118", source = "torchcu118" }
+gymnasium = "^0.28.1"
+matplotlib = "^3.7.1"
+torchinfo = "^1.7.2"
+pygame = "^2.3.0"
+
+[[tool.poetry.source]]
+name = "torchcu118"
+url = "https://download.pytorch.org/whl/cu118"
+default = false
+secondary = false
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
