@@ -11,7 +11,7 @@ from torchinfo import summary
 # Observation space [Cart Position(-4.8, 4.8), Cart Velocity(-inf, inf), Pole Angle(-0.418, 0.418), Pole Angular Velocity(-inf, inf)]
 # Rewards: +1 every step
 
-env = gym.make('CartPole-v1')
+env = gym.make("CartPole-v1")
 obs_size = env.observation_space.shape[0]
 action_space = env.action_space.n
 
@@ -36,8 +36,9 @@ action_space = env.action_space.n
 
 # Create an MLP model
 
-#device = 'cuda' if torch.cuda.is_available() else 'cpu'
-device = 'cpu'
+# device = 'cuda' if torch.cuda.is_available() else 'cpu'
+device = "cpu"
+
 
 class MLP(torch.nn.Module):
     def __init__(self, obs_size, action_size, hidden_dim=256) -> None:
@@ -70,15 +71,22 @@ optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 score = []
 
 
-def train(model: torch.nn.Module, env: gym.Env, optimizer: torch.optim.Optimizer, device=device, horizon=500, episodes=500):
-    """ 
-        Perform the training. Algorithm Reinforce:
-        for each episode {s1, a1, r2, ..., st-1, at-1, rt} ~ p0 do
-            for t = 1 to T-1 do:
-                teta <- teta + alpha*logp0(st, at) vt
+def train(
+    model: torch.nn.Module,
+    env: gym.Env,
+    optimizer: torch.optim.Optimizer,
+    device=device,
+    horizon=500,
+    episodes=500,
+):
+    """
+    Perform the training. Algorithm Reinforce:
+    for each episode {s1, a1, r2, ..., st-1, at-1, rt} ~ p0 do
+        for t = 1 to T-1 do:
+            teta <- teta + alpha*logp0(st, at) vt
 
-        Recall the Policy Gradient Theorem:
-        J0'= Ep0[logp0(s, a) * Qp0(s, a)]
+    Recall the Policy Gradient Theorem:
+    J0'= Ep0[logp0(s, a) * Qp0(s, a)]
     """
     model = model.to(device)
     scores = []
@@ -120,10 +128,12 @@ def train(model: torch.nn.Module, env: gym.Env, optimizer: torch.optim.Optimizer
 
         # top is 500. it's the number of step taken in the environment.
         scores.append(len(transitions))
-        rewards = torch.tensor([r for r in range(len(transitions), 0, -1)]).to(torch.float32)
+        rewards = torch.tensor([r for r in range(len(transitions), 0, -1)]).to(
+            torch.float32
+        )
         rewards = torch.tensor(rewards).to(device)
 
-        # compute returns for every given step. (discounted)
+        # compute returns for every given step. (discounted sum of reward)
         returns = []
         for i in range(len(transitions)):
             r = 0
@@ -135,38 +145,45 @@ def train(model: torch.nn.Module, env: gym.Env, optimizer: torch.optim.Optimizer
 
         returns = torch.tensor(returns, device=device)
 
-        # the log_prob of a multinomial is just the log of the probability of the action.
-        #actions = torch.tensor(actions, device=device)
+        # compute log_prob of selected action.
+        # actions = torch.tensor(actions, device=device)
         actions = torch.tensor([a for (s, a, r) in transitions]).to(device)
-        #batch_probs = torch.tensor([prob.gather(dim=0, index=a) for (prob, a) in zip(action_probs, actions)]).to(device) # get prob of selected action
-        
         batch_probs = torch.stack(action_probs, dim=0)
-        batch_probs = batch_probs.gather(dim=1, index=actions.long().view(-1, 1)).squeeze()
-        action_logprobs = torch.log(batch_probs) # compute log_prob of selected action.
+        batch_probs = batch_probs.gather(
+            dim=1, index=actions.long().view(-1, 1)
+        ).squeeze()
+        action_logprobs = torch.log(
+            batch_probs
+        )  # the log_prob of a multinomial is just the log of the probability of the action.
 
         # calculate the loss. the sign - is because works minimizing instead of maximizing
         loss = -torch.sum(action_logprobs * returns)
 
-        #optimize
+        # optimize
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
 
         # print debug information
         if trajectory % 50 == 0 and trajectory > 0:
-            print('Trajectory {}\tAverage Score: {:.2f}'.format(trajectory, np.mean(scores[-50:-1])))
+            print(
+                "Trajectory {}\tAverage Score: {:.2f}".format(
+                    trajectory, np.mean(scores[-50:-1])
+                )
+            )
 
     return scores
+
 
 scores = train(model, env, optimizer, device, horizon=500, episodes=250)
 
 
-def running_mean(x, samples = 50):
+def running_mean(x, samples=50):
     kernel = np.ones(samples)
-    conv_len = x.shape[0]-samples
+    conv_len = x.shape[0] - samples
     y = np.zeros(conv_len)
     for i in range(conv_len):
-        y[i] = kernel @ x[i:i+samples]
+        y[i] = kernel @ x[i : i + samples]
         y[i] /= samples
     return y
 
@@ -176,21 +193,20 @@ avg_score = running_mean(score, 50)
 plt.figure(figsize=(15, 7))
 plt.ylabel("Episode Length / Reward", fontsize=12)
 plt.xlabel("Epochs", fontsize=12)
-plt.plot(score, color='gray', linewidth=1)
-plt.plot(avg_score, color='blue', linewidth=3)
-plt.scatter(np.arange(score.shape[0]), score,
-            color='green', linewidth=0.3)
+plt.plot(score, color="gray", linewidth=1)
+plt.plot(avg_score, color="blue", linewidth=3)
+plt.scatter(np.arange(score.shape[0]), score, color="green", linewidth=0.3)
 plt.show()
 
+
 def watch_agent():
-    env = gym.make('CartPole-v1', render_mode='human')
+    env = gym.make("CartPole-v1", render_mode="human")
     state, info = env.reset()
     rewards = []
     for t in range(2000):
         logits = model(torch.from_numpy(state).float())
         pred = torch.softmax(logits, dim=0)
-        action = np.random.choice(np.array([0, 1]),
-                                  p=pred.squeeze().data.numpy())
+        action = np.random.choice(np.array([0, 1]), p=pred.squeeze().data.numpy())
         state, reward, done, truncated, _ = env.step(action)
         rewards.append(reward)
         if done or truncated:

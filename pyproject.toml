@@ -20,6 +20,10 @@ url = "https://download.pytorch.org/whl/cu118"
 default = false
 secondary = false
 
+
+[tool.poetry.group.dev.dependencies]
+black = "^23.3.0"
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
