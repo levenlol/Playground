@@ -3,6 +3,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import gymnasium as gym
 from torchinfo import summary
+from tqdm import tqdm
+
 
 # Vanilla Policy Gradient (aka Reinforce Algorithm) is the first algorithm of the Reinforcement Learning Family.
 # It is quite simple and we will try to use to solve the simple cart-pole gym environment.
@@ -91,6 +93,8 @@ def train(
     model = model.to(device)
     scores = []
 
+    outer = tqdm(total=episodes, desc = 'Episodes', position=0)
+
     for trajectory in range(episodes):
         # get initial state
         observation, info = env.reset()
@@ -125,6 +129,7 @@ def train(
 
             if done or truncated:
                 break
+
 
         # top is 500. it's the number of step taken in the environment.
         scores.append(len(transitions))
@@ -164,18 +169,16 @@ def train(
         loss.backward()
         optimizer.step()
 
-        # print debug information
-        if trajectory % 50 == 0 and trajectory > 0:
-            print(
-                "Trajectory {}\tAverage Score: {:.2f}".format(
-                    trajectory, np.mean(scores[-50:-1])
-                )
-            )
+        #update progress bar with debug info
+        scores_num = len(scores)
+        avg_score = np.mean(scores[np.max([-scores_num, -50]):-1])
+        outer.set_description_str(f"Avg Score: {avg_score:.2f}")
+        outer.update(1)
 
     return scores
 
 
-scores = train(model, env, optimizer, device, horizon=500, episodes=250)
+scores = train(model, env, optimizer, device, horizon=500, episodes=500)
 
 
 def running_mean(x, samples=50):

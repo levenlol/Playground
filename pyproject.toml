@@ -13,6 +13,7 @@ gymnasium = "^0.28.1"
 matplotlib = "^3.7.1"
 torchinfo = "^1.7.2"
 pygame = "^2.3.0"
+tqdm = "^4.65.0"
 
 [[tool.poetry.source]]
 name = "torchcu118"
