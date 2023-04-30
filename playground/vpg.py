@@ -4,7 +4,7 @@ import numpy as np
 import gymnasium as gym
 from torchinfo import summary
 
-# Reinforce Algorithm is the first algorithm of the Reinforcement Learning Family.
+# Vanilla Policy Gradient (aka Reinforce Algorithm) is the first algorithm of the Reinforcement Learning Family.
 # It is quite simple and we will try to use to solve the simple cart-pole gym environment.
 
 # Action space is [0, 1] (left-right)
