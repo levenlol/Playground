@@ -24,4 +24,4 @@ You will also see the agent playing the game once it finished training.
 We welcome contributions to Playground from the community. If you would like to contribute, please fork this repository and submit a pull request with your changes.
 
 ## License
-Playground is released under the MIT License.
+Playground is released under the Apache 2.0 License.
