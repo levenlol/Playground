@@ -12,7 +12,7 @@ from collections import deque
 import argparse
 
 # IMPLEMENTATION OF: Playing Atari with Deep Reinforcement Learning
-# https://arxiv.org/pdf/1312.5602.pdf and https://arxiv.org/pdf/1711.07478.pdf
+# https://arxiv.org/pdf/1312.5602.pdf and https://arxiv.org/pdf/1711.07478.pdf and https://storage.googleapis.com/deepmind-media/dqn/DQNNaturePaper.pdf
 
 # Parse commandline for game name and other infos.
 def parse_args():
