@@ -7,10 +7,23 @@ from tqdm import tqdm
 import torchvision
 from torchvision import transforms
 import matplotlib.pyplot as plt
-from collections import deque
+from collections import deque, namedtuple
 from itertools import count
 
-import argparse
+import logging
+def disable_logging(func):
+    def wrapper(*args, **kwargs):
+        # Disable logging
+        logging.disable(logging.CRITICAL)
+
+        # Call the original function
+        result = func(*args, **kwargs)
+
+        # Re-enable logging
+        logging.disable(logging.NOTSET)
+
+        return result
+    return wrapper
 
 # IMPLEMENTATION OF DQN
 
@@ -36,15 +49,20 @@ def running_mean(x, samples=50):
 
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
+# This namedtuple rapresent a transition, it's kinda useful to ease out our coding experience.
+Transition = namedtuple('Transition', ('state', 'action', 'next_state', 'reward'))
+
+
 # Replay Buffers are a central part of off-policy RL algorithms.
 
 # A replay buffer is a data structure that stores experiences of the agent as it interacts with the environment.
 # Each experience is typically represented as a tuple containing the current state, the action taken, the resulting reward, and the next state. 
 # The replay buffer can be thought of as a dataset of experiences that the agent can use to learn from.
 
+import random
 class ReplayBuffer:
     def __init__(self, max_size):
-        self.buffer = deque(maxlen=max_size)
+        self.buffer = deque([], maxlen=max_size)
 
     # Add a new experience to the buffer.
     def add(self, experience):
@@ -52,14 +70,13 @@ class ReplayBuffer:
 
     # Samples a batch of experiences from the buffer of size batch_size and returns the experiences.
     def sample(self, batch_size):
-        batch = np.random.choice(self.buffer, size=batch_size, replace=False)
+        batch = random.sample(self.buffer, batch_size)
         return batch
     
     # This method returns the number of experiences currently stored in the buffer.
     def __len__(self):
         return len(self.buffer)
         
-
 
 # BUNCH OF TRAINING HYPERPARAMETERS
 batch_size = 128
@@ -79,11 +96,11 @@ class DQNModel(torch.nn.Module):
         super().__init__()
 
         self.net = torch.nn.Sequential(
-            torch.nn.Linear(in_features=obs_size, out_features=256),
+            torch.nn.Linear(in_features=obs_size, out_features=128),
             torch.nn.ReLU(),
-            torch.nn.Linear(in_features=256, out_features=256),
+            torch.nn.Linear(in_features=128, out_features=128),
             torch.nn.ReLU(),
-            torch.nn.Linear(in_features=256, out_features=action_size)
+            torch.nn.Linear(in_features=128, out_features=action_size)
         )
 
     def forward(self, x):
@@ -94,17 +111,16 @@ class DQNModel(torch.nn.Module):
 def compute_eps(current_step, min, max, num_steps):
     alpha = current_step / num_steps
     alpha = np.clip(alpha, 0.0, 1.0)
-
     return min * (1 - alpha) + max * alpha
 
 
 # init replay buffer
 replay_buffer = ReplayBuffer(max_size=10000)
 
-obs, info = env.reset()
+obs_unusued, _ = env.reset()
 
 # init action-value Q
-obs_dim = len(obs) # after image processing we will have 1 color channel.
+obs_dim = len(obs_unusued) # after image processing we will have 1 color channel.
 action_dim = env.action_space.n
 
 policy_model = DQNModel(obs_dim, action_size=action_dim).to(device)
@@ -126,9 +142,7 @@ def select_action(model : torch.nn.Module, obs, eps:float):
         return torch.tensor(env.action_space.sample(), device=device)
     
 
-obs = torch.from_numpy(obs).to(device)
-
-def optimize(model : torch.nn.Module, replay_buffer : ReplayBuffer):
+def optimize(model : torch.nn.Module, stale_model : torch.nn.Module, replay_buffer : ReplayBuffer):
     """
         For our training update rule, we'll use the fact that every Q function for some policy obeys to the Bellman Equation:
                     Q(s_t, a) = r + yQ(s_t+1, pi(s_t+1))
@@ -139,36 +153,47 @@ def optimize(model : torch.nn.Module, replay_buffer : ReplayBuffer):
         return
     
     batch = replay_buffer.sample(batch_size=batch_size)
+    batch = Transition(*zip(*batch))
 
-    # compute if state are final or not.
-    # ...
+    # stack tensor for transition
+    states = torch.stack(batch.state)
+    actions = torch.stack(batch.action).unsqueeze(1) # unsqueeze to match dimension for later gather.
+    rewards = torch.stack(batch.reward)
+
+    # Compute if states are final or not.
+    next_states_mask = torch.tensor([s is not None for s in batch.next_state], device=device) # mask of final states
+    next_states = torch.stack([s for s in batch.next_state if s is not None])
 
     # Compute Q(s_t, a) - the model compute Q(s_t) for each action. 
     # then we select the columns of actions taken. These are the actions taken from the policy_model
-
-    # ...
+    # Store the Q(s_t) for the selected action. might or not might be the "optimal" policy, depends on the chosen eps
+    state_action_values = model(states).gather(1, actions)
 
     # Compute V(s_t+1) for all next states.
     # Expected values of final next states is zero.
     # Expected values of non final next states are computed based on stale-policy.
 
-    # ...
+    next_states_values = torch.zeros(batch_size, device=device)
+
+    # we need to compute the grads wrt policy weights, not the stale one.
+    with torch.inference_mode():
+        next_state_action_values = stale_model(next_states).amax(dim=1) # need to get the max of that
+        next_states_values[next_states_mask] = next_state_action_values # fill according to the mask. 0 otherwise
+
 
     # Compute expected Q values
-
-    # ...
+    expected_state_values = rewards + (gamma * next_states_values)
 
     # Compute loss
+    criterion = torch.nn.SmoothL1Loss()
+    loss = criterion(state_action_values, expected_state_values.unsqueeze(1))
 
-    # ...
+    # ZeroGrad. backward. Clip. Optimize
+    optimizer.zero_grad()
+    loss.backward()
 
-    # ZeroGrad. Optimize
-
-    # ...
-
-    # Clip grad. Step.
-
-    # ...
+    torch.nn.utils.clip_grad_value_(model.parameters(), 100)
+    optimizer.step()
 
 # fill replay buffer first.
 def initial_fill_replay_buffer(replay_buffer : ReplayBuffer):
@@ -192,7 +217,7 @@ def initial_fill_replay_buffer(replay_buffer : ReplayBuffer):
             else:
                 next_state = torch.tensor(obs, dtype=torch.float32, device = device)
 
-            replay_buffer.add((state, action, rew, next_state))
+            replay_buffer.add((state, action, next_state, rew))
 
             state = next_state
 
@@ -210,15 +235,28 @@ initial_fill_replay_buffer(replay_buffer=replay_buffer)
 
 num_episodes = 600
 steps_done = 0
-align_models_every_nstep = 4
+align_models_every_nstep = 1
 scores = []
 outer = tqdm(total=num_episodes, desc = 'Episodes', position=0)
 
-for i in tqdm(range(num_episodes)):
+@disable_logging
+def align_models():
+    #target_model.load_state_dict(policy_model.state_dict())
+    # Soft update of the target network's weights
+    # θ′ ← τ θ + (1 −τ )θ′
+    TAU = 0.005
+    target_net_state_dict = target_model.state_dict()
+    policy_net_state_dict = policy_model.state_dict()
+    for key in policy_net_state_dict:
+        target_net_state_dict[key] = policy_net_state_dict[key]*TAU + target_net_state_dict[key]*(1-TAU)
+    target_model.load_state_dict(target_net_state_dict)
+
+
+for i in range(num_episodes):
     state, info = env.reset()
     state = torch.tensor(state, device=device)
 
-    for t in count():
+    for h in range(500):
         # compute eps for current epoch
         eps = compute_eps(steps_done, eps_start, eps_end, eps_decay)
         steps_done += 1
@@ -232,22 +270,54 @@ for i in tqdm(range(num_episodes)):
         next_state = torch.tensor(obs, device=device, dtype=torch.float32) if not done else None 
 
         # add current experience to the replay buffer.
-        replay_buffer.add((state, action, rew, next_state))
+        replay_buffer.add((state, action, next_state, rew))
 
         state = next_state
 
         # One step optimization of the model. At this point we already have at least batch_size*2 elements in the replay buffer.
-        optimize(policy_model, replay_buffer=replay_buffer)
+        optimize(policy_model, target_model, replay_buffer=replay_buffer)
 
         # Check if in this epoch we need to align the weights.
-        if steps_done % align_models_every_nstep == 0:
+        # TODO: what change if we implement a soft update of the target network?
+        if (steps_done % align_models_every_nstep) == 0:
             # align the model weights
-            target_model.load_state_dict(policy_model.state_dict())
+            align_models()
+
+            
              
         if done:
-            scores.append(t+1)
-            outer.set_description_str(f"Avg score: {running_mean(scores)}")
+            scores.append(h+1)
+            scores_num = len(scores)
+            avg_score = np.mean(scores[np.max([-scores_num, -50]):-1])
+            outer.set_description_str(f"Avg Score: {avg_score:.2f}")
             outer.update(1)
             break
 
+# Plot training scores.
+score = np.array(scores)
+avg_score = running_mean(score, 50)
+plt.figure(figsize=(15, 7))
+plt.ylabel("Episode Length / Reward", fontsize=12)
+plt.xlabel("Epochs", fontsize=12)
+plt.plot(score, color="gray", linewidth=1)
+plt.plot(avg_score, color="blue", linewidth=3)
+plt.scatter(np.arange(score.shape[0]), score, color="green", linewidth=0.3)
+plt.show()
 
+
+def watch_agent():
+    env = gym.make("CartPole-v1", render_mode="human")
+    state, info = env.reset()
+    rewards = []
+    for t in range(2000):
+        logits = policy_model(torch.from_numpy(state).float())
+        action = torch.argmax(logits, dim=0).item()
+        state, reward, done, truncated, _ = env.step(action)
+        rewards.append(reward)
+        if done or truncated:
+            print("Reward:", sum([r for r in rewards]))
+            break
+    env.close()
+
+policy_model = policy_model.to('cpu')
+watch_agent()
