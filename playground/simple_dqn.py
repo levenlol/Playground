@@ -84,8 +84,10 @@ gamma = 0.99
 eps_start = 0.9
 eps_end = 0.05
 eps_decay = 1000
-tau = 0.005
 learning_rate = 1e-4
+TAU = 0.005
+align_models_every_nstep = 1
+
 
 # Create game environment
 env = gym.make('CartPole-v1', render_mode = None)
@@ -235,7 +237,6 @@ initial_fill_replay_buffer(replay_buffer=replay_buffer)
 
 num_episodes = 600
 steps_done = 0
-align_models_every_nstep = 1
 scores = []
 outer = tqdm(total=num_episodes, desc = 'Episodes', position=0)
 
@@ -244,7 +245,6 @@ def align_models():
     #target_model.load_state_dict(policy_model.state_dict())
     # Soft update of the target network's weights
     # θ′ ← τ θ + (1 −τ )θ′
-    TAU = 0.005
     target_net_state_dict = target_model.state_dict()
     policy_net_state_dict = policy_model.state_dict()
     for key in policy_net_state_dict:
