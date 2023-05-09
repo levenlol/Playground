@@ -4,11 +4,10 @@ import numpy as np
 import gymnasium as gym
 from torchinfo import summary
 from tqdm import tqdm
-import torchvision
-from torchvision import transforms
 import matplotlib.pyplot as plt
 from collections import deque, namedtuple
 from itertools import count
+import argparse
 
 import logging
 def disable_logging(func):
@@ -24,6 +23,25 @@ def disable_logging(func):
 
         return result
     return wrapper
+
+# BUNCH OF TRAINING HYPERPARAMETERS
+batch_size = 128
+gamma = 0.99
+eps_start = 0.9
+eps_end = 0.05
+eps_decay = 1000
+learning_rate = 1e-4
+TAU = 0.005 # 1 for hard update, <1 for soft updates.
+align_models_every_nstep = 1
+
+def parse_args():
+    parser = argparse.ArgumentParser(description='Deep Q-Network (DQN) algorithm with PyTorch and OpenAI Gym.')
+    parser.add_argument('--tau', type=float, default=0.005, help='Value of tau for soft target network update (default: 0.005)')
+    parser.add_argument('--align-models-every', type=int, default=1, help='Number of steps between aligning the policy and target networks (default: 1)')
+    args = parser.parse_args()
+    return args.tau, args.align_models_every
+
+TAU, align_models_every_nstep = parse_args()
 
 # IMPLEMENTATION OF DQN
 
@@ -77,17 +95,6 @@ class ReplayBuffer:
     def __len__(self):
         return len(self.buffer)
         
-
-# BUNCH OF TRAINING HYPERPARAMETERS
-batch_size = 128
-gamma = 0.99
-eps_start = 0.9
-eps_end = 0.05
-eps_decay = 1000
-learning_rate = 1e-4
-TAU = 0.005
-align_models_every_nstep = 1
-
 
 # Create game environment
 env = gym.make('CartPole-v1', render_mode = None)
@@ -240,17 +247,19 @@ steps_done = 0
 scores = []
 outer = tqdm(total=num_episodes, desc = 'Episodes', position=0)
 
+import copy
+
 @disable_logging
-def align_models():
+def align_models(dict):
     #target_model.load_state_dict(policy_model.state_dict())
     # Soft update of the target network's weights
     # θ′ ← τ θ + (1 −τ )θ′
     target_net_state_dict = target_model.state_dict()
-    policy_net_state_dict = policy_model.state_dict()
-    for key in policy_net_state_dict:
-        target_net_state_dict[key] = policy_net_state_dict[key]*TAU + target_net_state_dict[key]*(1-TAU)
+    for key in dict:
+        target_net_state_dict[key] = dict[key]*TAU + target_net_state_dict[key]*(1-TAU)
     target_model.load_state_dict(target_net_state_dict)
 
+old_dict = copy.deepcopy(policy_model.state_dict()) 
 
 for i in range(num_episodes):
     state, info = env.reset()
@@ -281,10 +290,9 @@ for i in range(num_episodes):
         # TODO: what change if we implement a soft update of the target network?
         if (steps_done % align_models_every_nstep) == 0:
             # align the model weights
-            align_models()
+            align_models(old_dict)
+            old_dict = copy.deepcopy(policy_model.state_dict()) 
 
-            
-             
         if done:
             scores.append(h+1)
             scores_num = len(scores)
