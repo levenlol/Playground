@@ -43,9 +43,9 @@ Soft target network parameter update with a tau_value of 0.005 and updating the 
 python simple_dqn.py --tau 0.005 --align-models-every 1
 ```
 
-Hard target network parameter update with a tau_value of 1 (i.e., no soft update) and updating the target network's weights every 225 steps:
+Hard target network parameter update with a tau_value of 1 (i.e., no soft update) and updating the target network's weights every 450 steps:
 ```
-python simple_dqn.py --tau 1 --align-models-every 225
+python simple_dqn.py --tau 1 --align-models-every 450
 ```
 
 ## Contributing

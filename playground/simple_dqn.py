@@ -36,12 +36,13 @@ align_models_every_nstep = 1
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Deep Q-Network (DQN) algorithm with PyTorch and OpenAI Gym.')
-    parser.add_argument('--tau', type=float, default=0.005, help='Value of tau for soft target network update (default: 0.005)')
-    parser.add_argument('--align-models-every', type=int, default=1, help='Number of steps between aligning the policy and target networks (default: 1)')
+    parser.add_argument('--tau', type=float, default=1, help='Value of tau for soft target network update (default: 0.005)')
+    parser.add_argument('--align-models-every', type=int, default=450, help='Number of steps between aligning the policy and target networks (default: 1)')
     args = parser.parse_args()
     return args.tau, args.align_models_every
 
 TAU, align_models_every_nstep = parse_args()
+print(f"Tau: {TAU}, Align model every: {align_models_every_nstep}")
 
 # IMPLEMENTATION OF DQN
 
@@ -247,8 +248,6 @@ steps_done = 0
 scores = []
 outer = tqdm(total=num_episodes, desc = 'Episodes', position=0)
 
-import copy
-
 @disable_logging
 def align_models(dict):
     #target_model.load_state_dict(policy_model.state_dict())
@@ -258,8 +257,6 @@ def align_models(dict):
     for key in dict:
         target_net_state_dict[key] = dict[key]*TAU + target_net_state_dict[key]*(1-TAU)
     target_model.load_state_dict(target_net_state_dict)
-
-old_dict = copy.deepcopy(policy_model.state_dict()) 
 
 for i in range(num_episodes):
     state, info = env.reset()
@@ -290,13 +287,12 @@ for i in range(num_episodes):
         # TODO: what change if we implement a soft update of the target network?
         if (steps_done % align_models_every_nstep) == 0:
             # align the model weights
-            align_models(old_dict)
-            old_dict = copy.deepcopy(policy_model.state_dict()) 
+            align_models(policy_model.state_dict())
 
         if done:
             scores.append(h+1)
             scores_num = len(scores)
-            avg_score = np.mean(scores[np.max([-scores_num, -50]):-1])
+            avg_score = np.mean(scores[np.max([-scores_num, -50]):-1]) if scores_num > 1 else h+1
             outer.set_description_str(f"Avg Score: {avg_score:.2f}")
             outer.update(1)
             break
