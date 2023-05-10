@@ -45,7 +45,7 @@ def parse_args():
 
 name_to_env_names = {"pong": "Pong-v4"}
 
-Transition = namedtuple("Transition", ("State", "Action", "Reward", "Next_State"))
+Transition = namedtuple('Transition', ('state', 'action', 'reward', 'next_state'))
 
 requested_game, training, TAU, align_models_every_nstep = parse_args()
 env_name = name_to_env_names[requested_game]
@@ -108,20 +108,12 @@ image_transform = create_image_preprocessor()
 # Each experience is typically represented as a tuple containing the current state, the action taken, the resulting reward, and the next state.
 # The replay buffer can be thought of as a dataset of experiences that the agent can use to learn from.
 class ReplayBuffer:
-    def __init__(self, max_size, device="cpu"):
+    def __init__(self, max_size):
         self.buffer = deque([], maxlen=max_size)
-        self.device = device
 
     # Add a new experience to the buffer.
-    def add(self, state, action, rew, next_state):
-        self.buffer.append(
-            (
-                state.to(self.device),
-                action.to(self.device),
-                rew.to(self.device),
-                next_state.to(self.device) if next_state is not None else None,
-            )
-        )
+    def add(self, experience):
+        self.buffer.append(experience)
 
     # Samples a batch of experiences from the buffer of size batch_size and returns the experiences.
     def sample(self, batch_size):
@@ -242,7 +234,7 @@ optimizer = torch.optim.AdamW(policy_model.parameters(), lr=learning_rate)
 steps_done = 0
 
 # init replay buffer
-replay_buffer = ReplayBuffer(replay_buffer_size, "cpu")
+replay_buffer = ReplayBuffer(replay_buffer_size)
 trajectory_container = RolloutBuffer(obs_dim[0], "cpu")
 
 # fill replay buffer first.
@@ -266,9 +258,8 @@ def initial_fill_replay_buffer(replay_buffer: ReplayBuffer, size: int):
             action = select_action(None, current_state, 1.0)  # always random action
             obs, rew, terminated, truncated, info = env.step(action.item())
 
-            rew = torch.tensor(rew)
+            rew = torch.clamp(torch.tensor(rew), -1, 1)
             done = terminated or truncated
-
 
             if done:
                 next_state = None
@@ -276,16 +267,66 @@ def initial_fill_replay_buffer(replay_buffer: ReplayBuffer, size: int):
                 trajectory_container.add(image_transform(obs))
                 next_state = trajectory_container.get() 
 
-            replay_buffer.add(current_state, action, rew, next_state)
+            replay_buffer.add((current_state, action, rew, next_state))
             progress_bar.update(1)
 
             if done or len(replay_buffer) >= size:
                 break
-    
 
-def optimize(model: torch.nn.Module, stale_model: torch.nn.Module, replay_buffer: ReplayBuffer):
-    # TODO: implement me
-    pass
+def optimize(model: torch.nn.Module, stale_model: torch.nn.Module, replay_buffer: ReplayBuffer, device):
+    """
+        For our training update rule, we'll use the fact that every Q function for some policy obeys to the Bellman Equation:
+                    Q(s_t, a) = r + yQ(s_t+1, pi(s_t+1))
+        The difference between the left and right sides of the equality is called temporal differnece error:
+                    t_d_e = Q(s, a) - (r + y*max_a(Q(s_t+1, a))) 
+    """
+    # If we dont have enough experiences in the replay buffer just skip optimization
+    if(len(replay_buffer) < batch_size):
+        return
+    
+    # Get a batch to perform model optimization.
+    batch = replay_buffer.sample(batch_size)
+    batch = Transition(*zip(*batch))
+
+    states = torch.stack(batch.state).to(device)
+    actions = torch.stack(batch.action).unsqueeze(1).to(device) # unsqueeze to match dimension for gather later.
+    rewards = torch.stack(batch.reward).to(device)
+    
+    # Next states requires special handling because it might be None. 
+    # In order to accomplish that we need a mask that tells us if the tensor at given index in the batch is None
+    next_states = torch.stack([t for t in batch.next_state if t is not None]).to(device)
+    next_states_mask = torch.tensor([t is not None for t in batch.next_state]).to(device)
+
+    # Compute Q(s_t, a) - the model compute Q(s_t) for each action. 
+    # then we select the columns of actions taken. These are the actions taken from the policy_model
+    # Store the Q(s_t) for the selected action. might or not might be the "optimal" policy, depends on the chosen action (and eps-greedy)
+    q_values = model(states).gather(1, actions)
+
+    # Compute V(s_t+1) for all next states.
+    # Recall V(s_t) = maxa(Q(s_t, a))
+    # Expected values of final next states is zero.
+    # Expected values of non final next states are computed based on stale-policy.
+    next_state_values = torch.zeros(batch_size, device=device)
+
+    # we need to compute the grads wrt policy weights, not the stale one.
+    with torch.inference_mode():
+        v_values = stale_model(next_states).amax(dim=1) # 
+        next_state_values[next_states_mask] = v_values # fill according to the mask. 0 otherwise
+
+    # Compute expected Q values
+    expected_q_values = rewards + (next_state_values * gamma)
+
+    # Compute Loss
+    # TODO: clamp the error
+    criterion = torch.nn.MSELoss()
+    loss = criterion(q_values, expected_q_values.unsqueeze(1))
+    
+    # ZeroGrad. backward. Clip. Optimize
+    optimizer.zero_grad()
+    loss.backward()
+
+    torch.nn.utils.clip_grad_value_(model.parameters(), 100)
+    optimizer.step()
 
 
 @disable_logging
@@ -298,25 +339,33 @@ def align_models(dict):
         target_net_state_dict[key] = dict[key]*TAU + target_net_state_dict[key]*(1-TAU)
     target_model.load_state_dict(target_net_state_dict)
 
+initial_fill_replay_buffer(replay_buffer, initial_samples_size)
+
 progress_bar = tqdm(total=total_train_frames, desc="Training progress.", position=0)
 scores = []
 
 steps_done = 0
 while steps_done < total_train_frames:
+        # Reset the environment to initial state
         obs, info = env.reset()
+        # Perform image pre-processing
         obs = image_transform(obs)
+        # Init stacked frame to a copy of the initial frame.
         trajectory_container.fill(obs)
         score = 0
 
         for _ in count():
+            # get current state, it is composed of the last 4 'played' frame
             current_state = trajectory_container.get()
             
+            # Compute eps-greedy probability and select an action
             eps = compute_eps(steps_done, eps_greedy_start, eps_greedy_end, linear_decay_episodes)
             action = select_action(policy_model, current_state, eps)
 
+            # Interact with the environment and get new state and reward
             obs, rew, terminated, truncated, info = env.step(action.item())
             score += rew
-            rew = torch.tensor(rew)
+            rew = torch.clamp(torch.tensor(rew), -1, 1)
 
             done = terminated or truncated
 
@@ -326,8 +375,10 @@ while steps_done < total_train_frames:
                 trajectory_container.add(image_transform(obs))
                 next_state = trajectory_container.get()
 
-            replay_buffer.add(current_state, action, rew, next_state)
-
+            # Add new state-transition to the replay buffer.
+            replay_buffer.add((current_state, action, rew, next_state))
+            
+            # Perform q-model (policy) optimization
             optimize(policy_model, target_model, replay_buffer)
 
             # Align the two network weights. Either soft update or hard update.
