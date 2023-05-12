@@ -196,9 +196,9 @@ class DQNModel(torch.nn.Module):
 @torch.inference_mode()
 def select_action(model: torch.nn.Module, obs, eps_greedy: float):
     if np.random.random() > eps_greedy:
-        return model(obs).argmax()
+        return model(obs.unsqueeze(0).to(device)).argmax().to('cpu')
     else:
-        return torch.tensor(env.action_space.sample(), device=device)
+        return torch.tensor(env.action_space.sample())
 
 
 # eps scheduling.
@@ -325,7 +325,6 @@ def optimize(model: torch.nn.Module, stale_model: torch.nn.Module, replay_buffer
     optimizer.zero_grad()
     loss.backward()
 
-    torch.nn.utils.clip_grad_value_(model.parameters(), 100)
     optimizer.step()
 
 
@@ -361,7 +360,6 @@ while steps_done < total_train_frames:
             # Compute eps-greedy probability and select an action
             eps = compute_eps(steps_done, eps_greedy_start, eps_greedy_end, linear_decay_episodes)
             action = select_action(policy_model, current_state, eps)
-
             # Interact with the environment and get new state and reward
             obs, rew, terminated, truncated, info = env.step(action.item())
             score += rew
@@ -379,19 +377,21 @@ while steps_done < total_train_frames:
             replay_buffer.add((current_state, action, rew, next_state))
             
             # Perform q-model (policy) optimization
-            optimize(policy_model, target_model, replay_buffer)
+            optimize(policy_model, target_model, replay_buffer, device)
 
             # Align the two network weights. Either soft update or hard update.
+            steps_done += 1
+
             if (steps_done % align_models_every_nstep == 0):
                 align_models(policy_model.state_dict())
             
             # Update training informations.
+            progress_bar.update(1)
             if done:
                 scores.append(score)
                 scores_num = len(scores)
                 avg_score = np.mean(scores[np.max([-scores_num, -50]):-1]) if scores_num > 1 else score
                 progress_bar.set_description_str(f"Avg Score: {avg_score:.2f}")
-                progress_bar.update(1)
                 break
 
 
