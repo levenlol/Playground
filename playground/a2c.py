@@ -43,6 +43,9 @@ batch_size = 64
 beta = 0.001
 batch_size = 12
 
+max_steps = 500
+epochs = 10000
+
 class MLP(torch.nn.Module):
     def __init__(self, input_dim : int, output_dim: int, neurons : int) -> None:
         super().__init__()
@@ -209,4 +212,4 @@ class Trainer():
 
 
 trainer = Trainer(env_name, 1, 128, device)
-trainer.train(10000, 500)
+trainer.train(epochs, max_steps)
