@@ -4,7 +4,7 @@ Playground is a collection of single-file implementations of popular Reinforceme
 ## Table of Contents
 1. [Installation](#installation)
 2. [Usage](#usage)
-2.1 [Simple DQN](#simple-dqn)
+    2.1 [Simple DQN](#simple-dqn)
 3. [Contributing](#contributing)
 4. [License](#license)
 
