@@ -10,6 +10,10 @@ import torch.nn.functional as F
 import random
 import threading
 
+'''
+STILL WIP
+'''
+
 # A2C (Advantage Actor-Critic) is a reinforcement learning algorithm that combines the benefits of both value-based and policy-based methods. 
 # It learns a policy and a value function simultaneously and uses them to update the policy and estimate the action-value function.
 
@@ -182,7 +186,7 @@ class Trainer():
         scores = []
         # collect data from the agents.
         for epoch in range(epochs):
-            self.agent.train_step(max_steps)
+            self.agent.train_step(max_steps) # todo: async me.
 
             # get data
             log_probs = torch.cat(self.agent.log_probs).to(self.device)

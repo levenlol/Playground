@@ -6,8 +6,9 @@ Playground is a collection of single-file implementations of popular Reinforceme
 2. [Usage](#usage)
     * [Simple DQN](#simple-dqn)
     * [A2C](#a2c)
-3. [Contributing](#contributing)
-4. [License](#license)
+3. [Feedback, Questions and Bug Reports](#feedback-questions-and-bug-reports)
+4. [Contributing](#contributing)
+5. [License](#license)
 
 ## Installation
 To get started with Playground, you will first need to install Python 3.x and PyTorch. We recommend using Poetry to create and manage the virtual environment for this project. You can install Poetry by following the instructions on their website.
@@ -65,6 +66,9 @@ For example, to run the A2C algorithm with a learning rate of 0.001, performing 
 ```
 python a2c.py --learning-rate 0.001 --num-steps 5 --num-agents 8
 ```
+
+## Feedback, Questions and Bug Reports
+If you have any feedback, bug reports, or questions, please don't hesitate to reach out. We value your input and are committed to addressing any issues promptly. Your feedback will help us improve and enhance the repository, ensuring a better experience for everyone. We're here to assist you, so feel free to ask any questions you may have. Together, let's make this playground a fantastic learning resource for all.
 
 ## Contributing
 We welcome contributions to Playground from the community. If you would like to contribute, please fork this repository and submit a pull request with your changes.
