@@ -4,7 +4,8 @@ Playground is a collection of single-file implementations of popular Reinforceme
 ## Table of Contents
 1. [Installation](#installation)
 2. [Usage](#usage)
-    2.1 [Simple DQN](#simple-dqn)
+    * [Simple DQN](#simple-dqn)
+    * [A2C](#a2c)
 3. [Contributing](#contributing)
 4. [License](#license)
 
@@ -46,6 +47,23 @@ python simple_dqn.py --tau 0.005 --align-models-every 1
 Hard target network parameter update with a tau_value of 1 (i.e., no soft update) and updating the target network's weights every 450 steps:
 ```
 python simple_dqn.py --tau 1 --align-models-every 450
+```
+
+#### A2C
+This is a straightforward implementation of the Advantage Actor-Critic (A2C) algorithm in PyTorch. The code is provided as a single Python file, a2c.py, which you can run on your local machine to train an agent on Gym environments.
+
+To execute the a2c.py script, use the following command:
+
+```
+python a2c.py --learning-rate <lr_value> --num-steps <n_steps> --num-agents <n_agents>
+```
+
+You can modify the values for <lr_value>, <n_steps>, and <n_agents> to customize the learning rate, the number of steps taken in each training iteration, and the number of agents playing in parallel.
+
+For example, to run the A2C algorithm with a learning rate of 0.001, performing 5 steps per iteration, and using 8 agents playing in parallel, use the following command:
+
+```
+python a2c.py --learning-rate 0.001 --num-steps 5 --num-agents 8
 ```
 
 ## Contributing
