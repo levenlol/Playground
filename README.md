@@ -50,7 +50,7 @@ Hard target network parameter update with a tau_value of 1 (i.e., no soft update
 python simple_dqn.py --tau 1 --align-models-every 450
 ```
 
-#### A2C
+#### A2C (Still WIP)
 This is a straightforward implementation of the Advantage Actor-Critic (A2C) algorithm in PyTorch. The code is provided as a single Python file, a2c.py, which you can run on your local machine to train an agent on Gym environments.
 
 To execute the a2c.py script, use the following command:
