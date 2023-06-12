@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import torch.nn.functional as F
 import concurrent.futures
 from tqdm import tqdm
+import matplotlib.pyplot as plt
 
 
 # A2C (Advantage Actor-Critic) is a reinforcement learning algorithm that combines the benefits of both value-based and policy-based methods. 
@@ -36,16 +37,14 @@ env_name = 'CartPole-v1'
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 # Define some hyperparameters
-learning_rate = 2e-3
+learning_rate = 1e-3
 gamma = 0.99
 agents_num = 8
-steps_per_actor = 200
-beta = 0.002
-batch_size = 12
-neurons = 256
+beta = 0.001
+neurons = 64
 
 max_steps = 500
-epochs = 10000
+epochs = 5000
 
 class MLP(torch.nn.Module):
     def __init__(self, input_dim : int, output_dim: int, neurons : int) -> None:
@@ -177,7 +176,6 @@ class Trainer():
                     # compute advantage
                     advantages = returns - values
 
-                    # LEARN
                     # losses
                     policy_loss = -(log_probs * advantages).sum()
                     critic_loss = 0.5 * advantages.square().sum()
@@ -196,7 +194,9 @@ class Trainer():
 
 
                 # clip for stability
-                torch.nn.utils.clip_grad_value_(self.model.parameters(), 100)
+                #torch.nn.utils.clip_grad_value_(self.model.parameters(), 100)
+
+                # learn
                 self.optimizer.step()
 
                 # store scores data
@@ -207,8 +207,31 @@ class Trainer():
 
 
                 #self._update_agents_model()
+        return scores
 
 
 if __name__ == "__main__":
     trainer = Trainer(env_name, agents_num, neurons, max_steps, device)
-    trainer.train(epochs)
+    scores = trainer.train(epochs)
+
+
+    # utility function to track scores
+    def running_mean(x, samples=50):
+        kernel = np.ones(samples)
+        conv_len = x.shape[0] - samples
+        y = np.zeros(conv_len)
+        for i in range(conv_len):
+            y[i] = kernel @ x[i : i + samples]
+            y[i] /= samples
+        return y
+    
+    scores = np.array(scores)
+    avg_score = running_mean(scores, 50)
+    plt.figure(figsize=(15, 7))
+    plt.ylabel("Episode Length / Reward", fontsize=12)
+    plt.xlabel("Epochs", fontsize=12)
+    plt.plot(scores, color="gray", linewidth=1)
+    plt.plot(avg_score, color="blue", linewidth=3)
+    plt.scatter(np.arange(scores.shape[0]), scores, color="green", linewidth=0.3)
+    plt.show()
+
