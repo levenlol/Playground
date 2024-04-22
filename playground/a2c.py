@@ -7,9 +7,10 @@ from tqdm import tqdm
 from itertools import count
 import matplotlib.pyplot as plt
 import torch.nn.functional as F
-import concurrent.futures
+import torch.multiprocessing as mp
 from tqdm import tqdm
 import matplotlib.pyplot as plt
+import os
 
 
 # A2C (Advantage Actor-Critic) is a reinforcement learning algorithm that combines the benefits of both value-based and policy-based methods. 
@@ -62,13 +63,10 @@ class MLP(torch.nn.Module):
     
     
 class Agent():
-    def __init__(self, env_name, model : torch.nn.Module, device = 'cpu'):
+    def __init__(self, env_name, device):
         self.env = gym.make(env_name)
         self.state, self.info = self.env.reset()
         self.total_steps = 0
-
-        # init model.
-        self.model = model.to(device)
 
         self.device = device
 
@@ -86,13 +84,9 @@ class Agent():
         action = categorical.sample()
         return action.to(self.device), categorical.log_prob(action).to(self.device)
     
-    # Run model
-    def run(self, obs):
-        return self.model(obs)
-
     # Perform a training step, accumulating the gradients.
     # Train step will terminate after 'steps' or if the env returns 'terminated'
-    def train_step(self, steps : int):
+    def train_step(self, model : torch.nn.Module, steps : int):
         done = False
 
         self.rewards = []
@@ -103,7 +97,7 @@ class Agent():
 
         # collect data to perform training
         for i in range(steps):
-            probs, value = self.run(torch.tensor(self.state).unsqueeze(0).to(self.device))
+            probs, value = model(torch.tensor(self.state, device=self.device).unsqueeze(0))
             action, log_prob = self.select_action(probs)
 
             self.state, rew, terminated, truncated, self.info = self.env.step(action.item())
@@ -133,7 +127,7 @@ class Agent():
     
 
 class Trainer():
-    def __init__(self, env_name : str, concurrent_agent : int, neurons_num : int = 128, max_epoch_steps = 500, device = 'cpu') -> None:
+    def __init__(self, env_name : str, concurrent_agent : int, neurons_num : int = 128, run_async = True, max_epoch_steps = 500, device = 'cpu') -> None:
         # create dummy env to get data to create a shared model.
         env = gym.make(env_name)
         state, _ = env.reset()
@@ -145,73 +139,101 @@ class Trainer():
         self.model = MLP(len(state), env.action_space.n, neurons_num).to(device)
 
         # init agents
-        self.agents = [Agent(env_name, self.model, device) for _ in range(concurrent_agent)]
+        self.agents = [Agent(env_name, device) for _ in range(concurrent_agent)]
         self.device = device
 
         # init optimizer
         self.optimizer = torch.optim.Adam(self.model.parameters(), learning_rate)
+
+        # store processes
+        self.run_async = run_async and concurrent_agent > 1
+        if self.run_async:
+            self.model.share_memory()
+            self.processes = []
+
+            for agent in self.agents: 
+                p = mp.Process(target=agent.train_step, args=(self.model, self.max_epoch_steps))
+                self.processes.append(p)
+
+
+    def __del__(self):
+        if self.run_async:
+            self.processes.shutdown(False, True)
+
+    def play_agents_sync(self):
+        for agent in self.agents:
+            agent.train_step(self.model, self.max_epoch_steps)
+
+    def play_agents_async(self):
+        for p in self.processes:
+            p.start()
+
+        for p in self.processes:
+            p.join()
         
 
     def train(self, epochs : int):
         scores = []
 
-        with concurrent.futures.ThreadPoolExecutor() as tpe:
-            # collect data from the agents.
-            for epoch in range(epochs):
-                # update all the agents asynchronously and wait for them to terminate
-                futures = [tpe.submit(agent.train_step, self.max_epoch_steps) for agent in self.agents]
-                concurrent.futures.wait(futures)
+        # collect data from the agents.
+        for epoch in range(epochs):
+            # update all the agents asynchronously and wait for them to terminate
+            if(self.run_async):
+                self.play_agents_async()
+            else:
+                self.play_agents_sync()
 
-                # get data
-                score = 0
-                self.optimizer.zero_grad()
+            # get data
+            score = 0
+            self.optimizer.zero_grad()
 
-                for agent in self.agents:
-                    probs = torch.cat(agent.probs).to(self.device)
-                    actions = torch.cat(agent.actions).to(self.device)
-                    log_probs = torch.cat(agent.log_probs).to(self.device)
-                    values = torch.cat(agent.values).squeeze().to(self.device)
-                    returns = torch.tensor(agent.compute_returns()).to(self.device)
+            for agent in self.agents:
+                probs = torch.cat(agent.probs).to(self.device)
+                actions = torch.cat(agent.actions).to(self.device)
+                log_probs = torch.cat(agent.log_probs).to(self.device)
+                values = torch.cat(agent.values).squeeze().to(self.device)
+                returns = torch.tensor(agent.compute_returns()).to(self.device)
 
-                    # compute advantage
-                    advantages = returns - values
+                # compute advantage
+                advantages = returns - values
 
-                    # losses
-                    policy_loss = -(log_probs * advantages).sum()
-                    critic_loss = 0.5 * advantages.square().sum()
+                # losses
+                policy_loss = -(log_probs * advantages).sum()
+                critic_loss = 0.5 * advantages.square().sum()
 
-                    # entropy
-                    prob_of_action = probs.gather(1, actions.unsqueeze(-1))
-                    entropy = -(log_probs * prob_of_action.squeeze()).sum()
+                # entropy
+                prob_of_action = probs.gather(1, actions.unsqueeze(-1))
+                entropy = -(log_probs * prob_of_action.squeeze()).sum()
 
-                    # total loss
-                    loss = policy_loss + critic_loss + beta * entropy
-                    
-                    # this call accumulates the gradients.
-                    loss.backward()
+                # total loss
+                loss = policy_loss + critic_loss + beta * entropy
+                
+                # this call accumulates the gradients.
+                loss.backward()
 
-                    score += np.sum(agent.rewards)
-
-
-                # clip for stability
-                #torch.nn.utils.clip_grad_value_(self.model.parameters(), 100)
-
-                # learn
-                self.optimizer.step()
-
-                # store scores data
-                scores.append(score / len(self.agents))
-
-                mean = np.mean(scores[np.max([-len(scores), -50]):-1]) if len(scores) > 1 else scores[0]
-                print(f"Epoch: {epoch+1} Reward {mean:.2f}")
+                score += np.sum(agent.rewards)
 
 
-                #self._update_agents_model()
+            # clip for stability
+            torch.nn.utils.clip_grad_value_(self.model.parameters(), 4)
+
+            # learn
+            self.optimizer.step()
+
+            # store scores data
+            scores.append(score / len(self.agents))
+
+            mean = np.mean(scores[np.max([-len(scores), -50]):-1]) if len(scores) > 1 else scores[0]
+            print(f"Epoch: {epoch+1} Reward {mean:.2f}")
+
+
+            #self._update_agents_model()
         return scores
 
 
 if __name__ == "__main__":
-    trainer = Trainer(env_name, agents_num, neurons, max_steps, device)
+    run_async = False
+    trainer = Trainer(env_name, agents_num, neurons, run_async, max_steps, device)
     scores = trainer.train(epochs)
 
 
