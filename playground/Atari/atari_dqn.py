@@ -147,12 +147,12 @@ class DQNModel(torch.nn.Module):
         super().__init__()
 
         self.conv1_block = torch.nn.Sequential(
-            torch.nn.Conv2d(in_channels=obs_size, out_channels=64, kernel_size=(8, 8), stride=2), # (N, 4, 84, 84) -> (N, 32, 20, 20),
+            torch.nn.Conv2d(in_channels=obs_size, out_channels=32, kernel_size=(8, 8), stride=4), # (N, 4, 84, 84) -> (N, 32, 20, 20),
             torch.nn.ReLU()
         )
 
         self.conv2_block = torch.nn.Sequential(
-            torch.nn.Conv2d(in_channels=32, out_channels=64, kernel_size=(4, 4), stride=4), # (N, 32, 20, 20) -> (N, 64, 9, 9)
+            torch.nn.Conv2d(in_channels=32, out_channels=64, kernel_size=(4, 4), stride=2), # (N, 32, 20, 20) -> (N, 64, 9, 9)
             torch.nn.ReLU()
         )
 
@@ -319,6 +319,6 @@ if __name__ == "__main__":
 
     # create replay buffer and init it with random initial experiences
     replay_buffer = ReplayBuffer(args.buffer_size)
-    initial_fill_replay_buffer(replay_buffer, env, args.preliminary_data_num)
+    #initial_fill_replay_buffer(replay_buffer, env, args.preliminary_data_num)
 
     print("done")
