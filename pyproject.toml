@@ -17,8 +17,8 @@ torchvision = [
     { url="https://download.pytorch.org/whl/cu121/torchvision-0.17.2%2Bcu121-cp311-cp311-win_amd64.whl", python=">=3.11,<3.12", markers="sys_platform == 'win32'"}
 ]
 
-gymnasium = {extras = ["accept-rom-license", "atari"], version = "^0.28.1"}
-matplotlib = "^3.7.1"
-torchinfo = "^1.7.2"
-pygame = "2.3.0"
-tqdm = "^4.65.0"
+gymnasium = {extras = ["accept-rom-license", "atari", "mujoco"], version = ">=0.28.1"}
+matplotlib = ">=3.7.1"
+torchinfo = ">=1.7.2"
+pygame = ">=2.3.0"
+tqdm = ">=4.65.0"
