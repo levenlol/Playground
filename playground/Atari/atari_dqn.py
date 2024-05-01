@@ -68,7 +68,8 @@ from collections import deque
 from dataclasses import dataclass
 import gymnasium as gym
 from torchvision import transforms
-import cv2
+from tqdm import tqdm
+from itertools import count
 
 # Replay buffer simples implementations.
 class ReplayBuffer:
@@ -95,6 +96,11 @@ class Args:
     env_id : str = 'BreakoutNoFrameskip-v4'
     # number of frames to skip
     env_skip_frames : int = 4
+    # number of frames to stack
+    env_stack_frames : int = 4
+
+    # tensor board experiment name
+    tensorboard_name : str = "AgentZero"
 
     # total timesteps
     total_timesteps : int = 10000000
@@ -203,10 +209,6 @@ def preprocess_image(image):
     Returns:
     - tensor: The preprocessed tensor of size (4, 84, 84).
     """
-    # Convert the image to a numpy array for easier manipulation.
-
-    # Resize the image to 84x84 pixels.
-    
     image_array = np.array(image)
     t = transforms.Compose(transforms=[
         transforms.ToPILImage(),
@@ -235,7 +237,7 @@ def visualize_frame(image):
 
 # make the environment
 env = gym.make(args.env_id, frameskip=args.env_skip_frames)
-env = gym.wrappers.FrameStack(env, 4)
+env = gym.wrappers.FrameStack(env, args.env_stack_frames)
 
 def compute_eps(current_step, min, max, num_steps):
     """
@@ -253,3 +255,70 @@ def compute_eps(current_step, min, max, num_steps):
     alpha = current_step / num_steps
     alpha = np.clip(alpha, 0.0, 1.0)
     return min * (1 - alpha) + max * alpha
+
+
+def initial_fill_replay_buffer(replay_buffer : ReplayBuffer, env : gym.Env, size : int):
+    """
+    Fill the replay buffer with initial experiences.
+
+    This function is used to populate the replay buffer with a set of initial experiences before
+    the training process begins. This helps the agent learn from a diverse set of experiences
+    from the start, rather than relying solely on the initial interactions with the environment.
+
+    Parameters:
+    replay_buffer (ReplayBuffer): The replay buffer to be filled.
+    env (gym.Env): the environment to sample experience from.
+    size (int): The desired size of the initial fill for the replay buffer.
+    """
+
+    progress_bar = tqdm(total=size, desc='Initialize replay buffer with random experiences.', position=0)
+    progress_bar.set_description_str("Filling replay buffer with random experiences")
+
+    while len(replay_buffer) < size:
+        obs, info = env.reset()
+        
+        for _ in count():
+            obs = preprocess_image(obs)
+
+            action = select_action(None, obs, 1.0) #always random action
+            next_obs, rew, terminated, truncated, info = env.step(action.item())
+
+            done = terminated or truncated
+            next_obs = preprocess_image(next_obs) if not done else None 
+            
+
+            replay_buffer.add((obs, action, rew, next_obs, done))
+
+            obs = next_obs
+            progress_bar.update(1)
+
+            if done or len(replay_buffer) >= size:
+                break
+
+    
+
+
+if __name__ == "__main__":
+    # we will use tensorboard to track our experiment learning process
+    writer = SummaryWriter(log_dir=f"runs/{args.tensorboard_name}" if args.tensorboard_name is not None else None)
+
+    # log hyperparameters
+    writer.add_text("Hyperparameters", "|param|value|\n|-|-|\n%s" % ("\n".join([f"|{key}|{value}|" for key, value in vars(args).items()])))
+
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+    # init target net and q network
+    q_network = DQNModel(args.env_stack_frames, env.action_space.n).to(device)
+    target_network = DQNModel(args.env_stack_frames, env.action_space.n).to(device)
+
+    # align models weights to start
+    target_network.load_state_dict(q_network.state_dict())
+
+    # define optimizer
+    optimizer = torch.optim.AdamW(q_network.parameters(), lr=args.learning_rate)
+
+    # create replay buffer and init it with random initial experiences
+    replay_buffer = ReplayBuffer(args.buffer_size)
+    initial_fill_replay_buffer(replay_buffer, env, args.preliminary_data_num)
+
+    print("done")
